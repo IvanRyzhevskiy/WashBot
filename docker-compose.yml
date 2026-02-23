@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - washbot_net
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - washbot_net
+
+  bot_client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    environment:
+      - BOT_CLIENT_TOKEN=${BOT_CLIENT_TOKEN}
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - washbot_net
+    restart: unless-stopped
+
+  bot_employee:
+    build:
+      context: .
+      dockerfile: Dockerfile.employee
+    environment:
+      - BOT_EMPLOYEE_TOKEN=${BOT_EMPLOYEE_TOKEN}
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - washbot_net
+    restart: unless-stopped
+
+  bot_owner:
+    build:
+      context: .
+      dockerfile: Dockerfile.owner
+    environment:
+      - BOT_OWNER_TOKEN=${BOT_OWNER_TOKEN}
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - washbot_net
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  redis_data:
+
+networks:
+  washbot_net:
+    driver: bridge
