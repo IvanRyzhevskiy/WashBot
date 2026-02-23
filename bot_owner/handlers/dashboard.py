@@ -10,7 +10,11 @@ router = Router()
 
 @router.message(F.text == "📊 Дашборд")
 async def show_dashboard(message: Message):
-    """Показать дашборд"""
+    """Показать дашборд.
+    Выручка рассчитывается по завершённым записям (Appointment.status == 'completed') —
+    это учёт фактически оказанных услуг.
+    Дополнительно выводится разбивка выручки по услугам за последний месяц.
+    """
     telegram_id = message.from_user.id
     
     today = date.today()
@@ -26,7 +30,7 @@ async def show_dashboard(message: Message):
         owner = result.scalar_one()
         car_wash_id = owner.car_wash_id
         
-        # Выручка сегодня
+        # Выручка сегодня (оказанные услуги)
         result = await db.execute(
             select(func.coalesce(func.sum(Service.price), 0))
             .select_from(Appointment)
@@ -87,24 +91,49 @@ async def show_dashboard(message: Message):
         )
         clients_count = result.scalar()
         
-        # Ожидающие платежи
+        # Ожидающие платежи (pending + client_confirmed)
         result = await db.execute(
             select(func.count())
             .select_from(Transaction)
             .where(
                 Transaction.car_wash_id == car_wash_id,
-                Transaction.status == "pending"
+                Transaction.status.in_(["pending", "client_confirmed"])
             )
         )
         pending_payments = result.scalar()
+        
+        # Разбивка выручки по услугам за последний месяц
+        result = await db.execute(
+            select(Service.name, func.coalesce(func.sum(Service.price), 0).label("revenue"))
+            .select_from(Appointment)
+            .join(Service, Appointment.service_id == Service.id)
+            .where(
+                Appointment.car_wash_id == car_wash_id,
+                Appointment.status == "completed",
+                func.date(Appointment.completed_at) >= month_ago
+            )
+            .group_by(Service.id, Service.name)
+            .order_by(func.sum(Service.price).desc())
+        )
+        service_revenue = result.all()
+    
+    # Формируем текст разбивки по услугам
+    if service_revenue:
+        service_lines = "\n".join(
+            f"  • {name}: {float(rev):,.0f}₽" for name, rev in service_revenue
+        )
+        service_breakdown = f"\n\n🧼 <b>По услугам за месяц:</b>\n{service_lines}"
+    else:
+        service_breakdown = ""
     
     await message.answer(
         f"📊 <b>Дашборд</b>\n\n"
-        f"💰 <b>Выручка:</b>\n"
+        f"💰 <b>Выручка (оказанные услуги):</b>\n"
         f"• Сегодня: {revenue_today:,.0f}₽\n"
         f"• Неделя: {revenue_week:,.0f}₽\n"
         f"• Месяц: {revenue_month:,.0f}₽\n\n"
         f"📅 <b>Записи сегодня:</b> {appointments_today}\n"
         f"👥 <b>Клиентов всего:</b> {clients_count}\n"
         f"⏳ <b>Ожидают оплаты:</b> {pending_payments}"
+        f"{service_breakdown}"
     )

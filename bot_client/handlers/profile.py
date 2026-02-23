@@ -1,9 +1,10 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from sqlalchemy import select, desc
+from sqlalchemy.orm import selectinload
 
 from core.database import get_db_context
-from core.models import User, Appointment, Service, Subscription
+from core.models import User, Appointment, Service, Subscription, CarWash
 
 router = Router()
 
@@ -18,8 +19,10 @@ async def my_appointments(message: Message):
         )
         user = result.scalar_one()
         
+        # Загружаем записи вместе со связанными услугами за один запрос (нет N+1)
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.service))
             .where(Appointment.user_id == user.id)
             .order_by(desc(Appointment.appointment_time))
             .limit(10)
@@ -33,12 +36,7 @@ async def my_appointments(message: Message):
     text = "📋 <b>Ваши последние записи:</b>\n\n"
     
     for apt in appointments:
-        async with get_db_context() as db:
-            result = await db.execute(
-                select(Service).where(Service.id == apt.service_id)
-            )
-            service = result.scalar_one()
-        
+        service = apt.service
         date_str = apt.appointment_time.strftime("%d.%m.%Y %H:%M")
         status_emoji = {
             "confirmed": "✅",

@@ -8,7 +8,7 @@ from core.database import get_db_context
 from core.models import User, Service, Appointment, CarWash
 from bot_client.states import BookingStates
 from bot_client.keyboards import (
-    get_services_keyboard, get_dates_keyboard, 
+    get_services_keyboard, get_dates_keyboard,
     get_times_keyboard, get_confirmation_keyboard
 )
 
@@ -103,16 +103,19 @@ async def date_chosen(callback: CallbackQuery, state: FSMContext):
         )
         busy = result.scalars().all()
         
-        # Генерируем свободные слоты
-        busy_times = [a.appointment_time for a in busy]
-        
-        # Простая генерация слотов (для MVP)
+        # Генерируем свободные слоты с учётом длительности услуги и занятых интервалов
         slots = []
         for hour in range(9, 21):  # 9:00 - 21:00
             time_str = f"{hour:02d}:00"
-            slot_time = datetime.combine(selected_date, datetime.strptime(time_str, "%H:%M").time())
+            slot_start = datetime.combine(selected_date, datetime.strptime(time_str, "%H:%M").time())
+            slot_end = slot_start + timedelta(minutes=service.duration)
             
-            if slot_time not in busy_times:
+            # Слот свободен, если не пересекается ни с одной существующей записью
+            overlaps = any(
+                apt.appointment_time < slot_end and apt.end_time > slot_start
+                for apt in busy
+            )
+            if not overlaps:
                 slots.append(time_str)
     
     await state.set_state(BookingStates.choosing_time)
@@ -155,7 +158,10 @@ async def time_chosen(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(BookingStates.confirming, F.data == "confirm")
 async def confirm_booking(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение записи"""
+    """Подтверждение записи.
+    Перед созданием повторно проверяем доступность слота, чтобы исключить гонку
+    (когда клиент выбрал слот, но до подтверждения его занял другой пользователь).
+    """
     data = await state.get_data()
     telegram_id = callback.from_user.id
     
@@ -180,9 +186,27 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         )
         service = result.scalar_one()
         
-        # Создаем запись
         end_time = appointment_time + timedelta(minutes=service.duration)
         
+        # Повторная проверка доступности слота перед созданием записи (защита от гонки)
+        conflict_result = await db.execute(
+            select(Appointment).where(
+                Appointment.car_wash_id == user.car_wash_id,
+                Appointment.appointment_time < end_time,
+                Appointment.end_time > appointment_time,
+                Appointment.status.in_(["confirmed", "pending"]),
+            )
+        )
+        if conflict_result.scalars().first():
+            await state.clear()
+            await callback.message.edit_text(
+                "❌ К сожалению, это время только что заняли. "
+                "Пожалуйста, выберите другое время."
+            )
+            await callback.answer()
+            return
+        
+        # Создаем запись
         appointment = Appointment(
             user_id=user.id,
             service_id=service_id,

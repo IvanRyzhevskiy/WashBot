@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean, 
+    Column, Integer, String, Text, DateTime, Boolean,
     Numeric, ForeignKey, JSON, Date, BigInteger, Index,
     UniqueConstraint, CheckConstraint
 )
@@ -91,8 +91,8 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    car_wash_id = Column(Integer, ForeignKey("carwashes.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    car_wash_id = Column(Integer, ForeignKey("carwashes.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(255), nullable=False)
     total_washes = Column(Integer, nullable=False)
     remaining_washes = Column(Integer, nullable=False)
@@ -103,20 +103,31 @@ class Subscription(Base):
     
     # Relationships
     user = relationship("User", back_populates="subscriptions")
+    car_wash = relationship("CarWash")
 
 class Transaction(Base):
     __tablename__ = "transactions"
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    car_wash_id = Column(Integer, ForeignKey("carwashes.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    car_wash_id = Column(Integer, ForeignKey("carwashes.id", ondelete="SET NULL"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
     type = Column(String(50), nullable=False)  # replenishment, subscription_purchase, service_payment
+    # Statuses: pending → client_confirmed → approved/rejected
     status = Column(String(50), nullable=False, default="pending")
     payment_method = Column(String(50))
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # ID шаблона абонемента и его параметры на момент покупки
+    template_id = Column(Integer, nullable=True)
+    meta = Column(JSON, nullable=True)
+    # Ссылка на созданный абонемент после подтверждения оплаты
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     approved_at = Column(DateTime(timezone=True))
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    subscription = relationship("Subscription")
     
     __table_args__ = (
         Index("ix_transactions_status", "status"),

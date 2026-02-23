@@ -1,13 +1,12 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
-from datetime import datetime, timedelta
 import qrcode
 from io import BytesIO
 from sqlalchemy import select
 
 from core.database import get_db_context
-from core.models import User, Transaction, Subscription
+from core.models import User, Transaction
 from bot_client.states import SubscriptionStates
 from bot_client.keyboards import get_subscriptions_keyboard, get_payment_keyboard
 
@@ -54,7 +53,15 @@ async def buy_subscription(callback: CallbackQuery, state: FSMContext):
             car_wash_id=user.car_wash_id,
             amount=template["price"],
             type="subscription_purchase",
-            status="pending"
+            status="pending",
+            # Сохраняем шаблон, чтобы администратор мог создать абонемент с правильными параметрами
+            template_id=template["id"],
+            meta={
+                "name": template["name"],
+                "washes": template["washes"],
+                "price": template["price"],
+                "days": template["days"],
+            },
         )
         db.add(transaction)
         await db.commit()
@@ -89,7 +96,8 @@ async def buy_subscription(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(SubscriptionStates.waiting_payment, F.data.startswith("paid:"))
 async def payment_confirmed(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение оплаты клиентом"""
+    """Подтверждение оплаты клиентом — переводим транзакцию в статус client_confirmed.
+    Администратор проверит платёж и создаст абонемент."""
     transaction_id = int(callback.data.split(":")[1])
     
     async with get_db_context() as db:
@@ -104,32 +112,18 @@ async def payment_confirmed(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
         
-        transaction.status = "approved"
-        transaction.approved_at = datetime.now()
-        await db.commit()
-        
-        # Создаем абонемент
-        data = await state.get_data()
-        template = data.get("template")
-        
-        subscription = Subscription(
-            user_id=transaction.user_id,
-            car_wash_id=transaction.car_wash_id,
-            name=template["name"],
-            total_washes=template["washes"],
-            remaining_washes=template["washes"],
-            purchase_price=template["price"],
-            valid_until=datetime.now().date() + timedelta(days=template["days"]),
-            is_active=True
-        )
-        db.add(subscription)
+        # Клиент подтверждает, что оплатил — ждём подтверждения администратора
+        transaction.status = "client_confirmed"
         await db.commit()
     
+    data = await state.get_data()
+    template = data.get("template", {})
+    
     await callback.message.edit_text(
-        f"✅ <b>Абонемент активирован!</b>\n\n"
-        f"{template['name']}\n"
-        f"Доступно моек: {template['washes']}\n"
-        f"Срок действия: {template['days']} дней"
+        f"⏳ <b>Платёж отправлен на проверку</b>\n\n"
+        f"{template.get('name', 'Абонемент')}\n"
+        f"Сумма: {template.get('price', '')}₽\n\n"
+        f"Администратор проверит оплату и активирует абонемент."
     )
     await state.clear()
     await callback.answer()

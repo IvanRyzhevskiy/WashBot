@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from datetime import datetime, date, timedelta
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 
 from core.database import get_db_context
 from core.models import Appointment, User, Service
@@ -17,8 +18,10 @@ async def my_appointments(message: Message, user: dict):
     today_end = datetime.combine(date.today(), datetime.max.time())
     
     async with get_db_context() as db:
+        # Загружаем клиента и услугу за один запрос (нет N+1)
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.user), selectinload(Appointment.service))
             .where(
                 Appointment.car_wash_id == user.car_wash_id,
                 Appointment.appointment_time >= today_start,
@@ -34,16 +37,8 @@ async def my_appointments(message: Message, user: dict):
         return
     
     for apt in appointments:
-        async with get_db_context() as db:
-            result = await db.execute(
-                select(User).where(User.id == apt.user_id)
-            )
-            client = result.scalar_one()
-            
-            result = await db.execute(
-                select(Service).where(Service.id == apt.service_id)
-            )
-            service = result.scalar_one()
+        client = apt.user
+        service = apt.service
         
         time_str = apt.appointment_time.strftime("%H:%M")
         text = (

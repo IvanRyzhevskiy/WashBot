@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select, or_
+from sqlalchemy.orm import selectinload
 
 from core.database import get_db_context
 from core.models import User, Appointment, Service, Subscription
@@ -90,8 +91,10 @@ async def client_history(callback: CallbackQuery):
         )
         client = result.scalar_one()
         
+        # Загружаем записи вместе с услугами за один запрос (нет N+1)
         result = await db.execute(
             select(Appointment)
+            .options(selectinload(Appointment.service))
             .where(Appointment.user_id == client_id)
             .order_by(Appointment.appointment_time.desc())
             .limit(5)
@@ -102,12 +105,7 @@ async def client_history(callback: CallbackQuery):
     
     if appointments:
         for apt in appointments:
-            async with get_db_context() as db:
-                result = await db.execute(
-                    select(Service).where(Service.id == apt.service_id)
-                )
-                service = result.scalar_one()
-            
+            service = apt.service
             date_str = apt.appointment_time.strftime("%d.%m.%Y %H:%M")
             text += f"• {date_str} - {service.name} ({apt.status})\n"
     else:
