@@ -4,14 +4,9 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 def get_admin_keyboard() -> ReplyKeyboardMarkup:
     """Клавиатура администратора"""
     builder = ReplyKeyboardBuilder()
-    builder.row(
-        KeyboardButton(text="📅 Записи на сегодня"),
-        KeyboardButton(text="💰 Платежи")
-    )
-    builder.row(
-        KeyboardButton(text="👥 Сотрудники"),
-        KeyboardButton(text="📊 Статистика")
-    )
+    builder.row(KeyboardButton(text="📝 Записать клиента"))
+    builder.row(KeyboardButton(text="📅 Посмотреть записи"))
+    builder.row(KeyboardButton(text="🧼 Управление тарифами"))
     return builder.as_markup(resize_keyboard=True)
 
 def get_washer_keyboard() -> ReplyKeyboardMarkup:

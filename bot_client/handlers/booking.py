@@ -142,12 +142,18 @@ async def time_chosen(callback: CallbackQuery, state: FSMContext):
     selected_datetime = datetime.combine(selected_date, datetime.strptime(time_str, "%H:%M").time())
     
     await state.set_state(BookingStates.confirming)
+    
+    category_display = {"sedan": "Седан", "crossover": "Кроссовер", "suv": "Внедорожник"}
+    category = category_display.get(service.car_category, service.car_category)
+    
     await callback.message.edit_text(
         f"📝 <b>Проверьте данные:</b>\n\n"
         f"Услуга: {service.name}\n"
         f"Дата: {selected_datetime.strftime('%d.%m.%Y')}\n"
         f"Время: {time_str}\n"
-        f"Стоимость: {service.price}₽\n\n"
+        f"Стоимость: {service.price}₽\n"
+        f"Категория: {category}\n"
+        f"Макс. скидка: {service.max_discount_percent}%\n\n"
         f"Всё верно?",
         reply_markup=get_confirmation_keyboard()
     )
