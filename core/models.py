@@ -58,6 +58,8 @@ class Service(Base):
     price = Column(Numeric(10, 2), nullable=False)
     duration = Column(Integer, nullable=False)  # minutes
     is_active = Column(Boolean, default=True)
+    car_category = Column(String(50), nullable=False, default="sedan")
+    max_discount_percent = Column(Integer, nullable=False, default=0)
     
     # Relationships
     car_wash = relationship("CarWash", back_populates="services")
